@@ -16,10 +16,20 @@ Generador de códigoen 3 direcciones para una grmática simplificada de Python
     termino    → factor ((*|/|//|%) factor)*
     factor     → potencia (** potencia)*
     potencia   → ( expresion ) | NUM | ID
-  
+
+**Precedencia de operadores (de mayor a menor):**
+1. `( )` - Paréntesis
+2. `**` - Potenciación (asociativa a la derecha)
+3. `*, /, //, %` - Multiplicación, división, división entera, módulo
+4. `+, -` - Suma, resta
+
+---
+
 ### Definir atributos de la gramática
 
 Todos los atributos son **sintetizados** (se calculan de abajo hacia arriba en el árbol):
+
+#### Atributos Teóricos
 
 | **Atributo teórico** | **¿Qué es?** | **¿Dónde se calcula?** |
 | :--- | :--- | :--- |
@@ -27,7 +37,7 @@ Todos los atributos son **sintetizados** (se calculan de abajo hacia arriba en e
 | `.lugar`  | Variable/temporal que contiene resultado. | Método `generar_codigo()` retorna `string` |
 | `.codigo` | Código de 3 direcciones | Método `generar_codigo()` agrega a lista |
 
-
+#### Atributos por No Terminal
 
 | **No Terminal** | **Atributo** | **Tipo** | 
 | :--- | :--- | :--- |
@@ -48,27 +58,43 @@ Todos los atributos son **sintetizados** (se calculan de abajo hacia arriba en e
 
 ### Reglas semánticas y de traducción para cada producción 
 
-**Regla Asignación**
+#### Regla 1: Asignación
 ```
-<sentencia> ::= <ID> = <expresion>
+<sentencia> ::= ID = <expresion>
 
-Semántica:
+Reglas semánticas:
   <sentencia>.val = <expresion>.val
   TablaSimbolos.insertar(ID.nombre, <expresion>.val)
 
-Código 3D:
+Reglas de traducción (Código 3D):
+  <sentencia>.lugar = ID.nombre
   <sentencia>.codigo = <expresion>.codigo || 
                        gen(ID.nombre + " = " + <expresion>.lugar)
 ```
 
-**Regla Expresión Suma/Resta**
+**Implementación:**
+```python
+def evaluar(self, tabla: TablaSimbolos) -> float:
+    valor = self.expresion.evaluar(tabla)
+    tabla.insertar(self.variable, "float", valor, self.linea)
+    return valor
+
+def generar_codigo(self, generador) -> str:
+    expr_var = self.expresion.generar_codigo(generador)
+    generador.agregar_instruccion("=", expr_var, None, self.variable)
+    return self.variable
+```
+
+---
+
+#### Regla 2: Expresión (Suma/Resta)
 ```
 <expresion> ::= <termino₁> + <termino₂>
 
-Semántica:
+Reglas semánticas:
   <expresion>.val = <termino₁>.val + <termino₂>.val
 
-Código 3D:
+Reglas de traducción (Código 3D):
   temp = nuevo_temporal()
   <expresion>.lugar = temp
   <expresion>.codigo = <termino₁>.codigo || 
@@ -76,14 +102,34 @@ Código 3D:
                        gen(temp + " = " + <termino₁>.lugar + " + " + <termino₂>.lugar)
 ```
 
- **Regla Término Multiplicación/División**
+**Implementación:**
+```python
+def evaluar(self, tabla: TablaSimbolos) -> float:
+    val_izq = self.izq.evaluar(tabla)
+    val_der = self.der.evaluar(tabla)
+    if self.operador == '+':
+        return val_izq + val_der
+    elif self.operador == '-':
+        return val_izq - val_der
+
+def generar_codigo(self, generador) -> str:
+    izq_var = self.izq.generar_codigo(generador)
+    der_var = self.der.generar_codigo(generador)
+    temp = generador.nuevo_temporal()
+    generador.agregar_instruccion(self.operador, izq_var, der_var, temp)
+    return temp
+```
+
+---
+
+#### Regla 3: Término (Multiplicación/División)
 ```
 <termino> ::= <factor₁> * <factor₂>
 
-Semántica:
+Reglas semánticas:
   <termino>.val = <factor₁>.val * <factor₂>.val
 
-Código 3D:
+Reglas de traducción (Código 3D):
   temp = nuevo_temporal()
   <termino>.lugar = temp
   <termino>.codigo = <factor₁>.codigo || 
@@ -91,14 +137,16 @@ Código 3D:
                      gen(temp + " = " + <factor₁>.lugar + " * " + <factor₂>.lugar)
 ```
 
-**Regla Potencia**
+---
+
+#### Regla 4: Factor (Potenciación)
 ```
 <factor> ::= <potencia₁> ** <potencia₂>
 
-Semántica:
+Reglas semánticas:
   <factor>.val = <potencia₁>.val ** <potencia₂>.val
 
-Código 3D:
+Reglas de traducción (Código 3D):
   temp = nuevo_temporal()
   <factor>.lugar = temp
   <factor>.codigo = <potencia₁>.codigo || 
@@ -106,30 +154,68 @@ Código 3D:
                     gen(temp + " = " + <potencia₁>.lugar + " ** " + <potencia₂>.lugar)
 ```
 
-**Regla Número**
-```
-<potencia> ::= <NUM>
+---
 
-Semántica:
+#### Regla 5: Número (Terminal)
+```
+<potencia> ::= NUM
+
+Reglas semánticas:
   <potencia>.val = NUM.valor
   <potencia>.lugar = NUM.valor
   <potencia>.codigo = ε (vacío)
 ```
 
-**Regla Variable**
-```
-<potencia> ::= <ID>
+**Implementación:**
+```python
+def evaluar(self, tabla: TablaSimbolos) -> float:
+    return self.valor
 
-Semántica:
+def generar_codigo(self, generador) -> str:
+    return str(self.valor)
+```
+
+---
+
+#### Regla 6: Variable (Terminal)
+```
+<potencia> ::= ID
+
+Reglas semánticas:
   <potencia>.val = TablaSimbolos.buscar(ID.nombre).valor
   <potencia>.lugar = ID.nombre
   <potencia>.codigo = ε (vacío)
 ```
 
+**Implementación:**
+```python
+def evaluar(self, tabla: TablaSimbolos) -> float:
+    sym = tabla.buscar(self.nombre)
+    if sym is None:
+        raise Exception(f"Variable '{self.nombre}' no definida")
+    return sym.valor
+
+def generar_codigo(self, generador) -> str:
+    return self.nombre
+```
+
+---
+
 ### Tabla de Símbolos
 
- - Estructura: nombre, tipo, valor, linea
- - Operaciones: insertar(), buscar(), actualizar()
+**Estructura de un símbolo:**
+- `nombre`: Identificador de la variable (ej: "x")
+- `tipo`: Tipo de dato (ej: "float")
+- `valor`: Valor almacenado (ej: 5.0)
+- `linea`: Línea del código fuente donde se definió
+
+**Operaciones:**
+- `insertar(nombre, tipo, valor, linea)`: Agrega o actualiza un símbolo
+- `buscar(nombre)`: Busca un símbolo por nombre, retorna `Simbolo` o `None`
+- `actualizar(nombre, valor)`: Modifica el valor de un símbolo existente
+- `imprimir()`: Muestra el estado actual de la tabla
+
+**Implementación:**
 
 
         class Simbolo:
@@ -163,33 +249,37 @@ Semántica:
 
       
 ### Implementar ETDS (Esquema de Traducción)
-- Codificar las reglas semánticas en los métodos
-    
-                
-  REGLA SEMÁNTICA: NUM.val = NUM.valor
-      
-            class NodoNumero(NodoAST):
-                valor: float
-                def evaluar(self, tabla: TablaSimbolos) -> float:
-                    return self.valor
-                
-  REGLA DE TRADUCCIÓN:
 
-  NUM.lugar = NUM.valor
-  
-  NUM.lugar =NUM.codigo = ε
-  
-                def generar_codigo(self, generador) -> str:
-                    return str(self.valor)
-                
-  VISUALIZACIÓN:
-  
-                def imprimir_arbol(self, prefijo="", es_ultimo=True, con_valores=True, tabla=None):
-                    conector = "└── " if es_ultimo else "├── "
-                    if con_valores:
-                        print(f"{prefijo}{conector}NUM: {self.valor} → val={self.valor}")
-                    else:
-                        print(f"{prefijo}{conector}NUM: {self.valor}")
+El **Esquema de Traducción Dirigida por la Sintaxis** se implementa mediante tres métodos en cada nodo del AST:
+
+#### Método `evaluar()` - Calcula `.val`
+```python
+# REGLA SEMÁNTICA: NUM.val = NUM.valor
+class NodoNumero(NodoAST):
+    def evaluar(self, tabla: TablaSimbolos) -> float:
+        return self.valor
+```
+
+#### Método `generar_codigo()` - Calcula `.lugar` y `.codigo`
+```python
+# REGLA DE TRADUCCIÓN:
+#   NUM.lugar = NUM.valor
+#   NUM.codigo = ε (vacío)
+class NodoNumero(NodoAST):
+    def generar_codigo(self, generador) -> str:
+        return str(self.valor)  # Retorna .lugar
+```
+
+#### Método `imprimir_arbol()` - Visualización
+```python
+class NodoNumero(NodoAST):
+    def imprimir_arbol(self, prefijo="", es_ultimo=True, con_valores=True, tabla=None):
+        conector = "└── " if es_ultimo else "├── "
+        if con_valores:
+            print(f"{prefijo}{conector}NUM: {self.valor} → val={self.valor}")
+        else:
+            print(f"{prefijo}{conector}NUM: {self.valor}")
+```
 
   
   
